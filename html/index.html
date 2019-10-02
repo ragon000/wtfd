@@ -66,7 +66,6 @@ colnum.set("{{.Name}}",{col: "{{.DepCount}}", row: "{{.Row}}"});
       <h3><span class="pointicon"></span><span id="detailpoints" class="firamono"></span></h3>
       <a id="challuri" class="challengelink" style="display: none;">Zur Challenge!</a>
       </br>
-      <a id="challauthor" style="display: none;"></a>
       <div id="detaildescription"></div>
       <div id="flagsubmitmsg"></div>
       <div id="detailform">
@@ -78,6 +77,8 @@ colnum.set("{{.Name}}",{col: "{{.DepCount}}", row: "{{.Row}}"});
         <div id="solutioninnerdiv"></div>
       </div>
       <span id="checkloading" class="loadingbar" style="display: none;"></span>
+      <a class="challauthor">by </a>
+      <a class="challauthor" id="challauthor" style="display: none;"></a>
     </dialog>
 
 {{ template "footer" . }}

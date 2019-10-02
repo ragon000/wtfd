@@ -453,6 +453,11 @@ menu {
     color: #14b967;
 }
 
+.challauthor {
+    position: relative;
+    color: #4d4d4d;
+}
+
 /* Code stuff */
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
