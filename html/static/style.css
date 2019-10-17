@@ -345,18 +345,19 @@ h3 {
 .loadingbar {
     margin-top: 1px;
     margin-bottom: 1px;
-    height: 1px;
+    height: 2px;
     width: 100%;
     background-color: #14b967;
 
-    animation-name: left-right;
+    animation-name: left-to-right;
     animation-duration: 1s;
-    animation-direction: alternate;
+    animation-direction: normal;
     animation-iteration-count: infinite;
     animation-timing-function: ease-in-out;
 }
 
-@keyframes left-right {
+/* Use with animation-direction alternate */
+@keyframes left-to-right-and-back {
     from {
         float: left;
         width: 5%;
@@ -367,6 +368,21 @@ h3 {
     to {
         float: right;
         width: 5%;
+    }
+}
+
+/* Use with animation-direction normal */
+@keyframes left-to-right {
+    from {
+        float: left;
+        width: 0%;
+    }
+    50% {
+        width: 100%;
+    }
+    to {
+        float: right;
+        width: 0%;
     }
 }
 
