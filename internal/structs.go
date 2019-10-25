@@ -1,9 +1,10 @@
 package wtfd
 
 import (
-	"golang.org/x/crypto/bcrypt"
 	"fmt"
+	"golang.org/x/crypto/bcrypt"
 	"sort"
+	"html/template"
 )
 
 // Challenges Array of challenges but in nice with funcitons
@@ -42,20 +43,27 @@ type ChallengeJSON struct {
 // Config stores settings loaded from config.json
 type Config struct {
 	Port             int64  `json:port`
+	SocialMedia      template.HTML `json:"social"`
+	Icon             string `json:"icon"`
+	FirstLine        template.HTML `json:"firstline"`
+	SecondLine       template.HTML `json:"secondline"`
 	Key              string `json:key`
 	ChallengeInfoDir string `json:"challinfodir"`
 	SSHHost          string `json:"sshhost"`
+	ServiceDeskMail  string `json:"servicedeskmailwithport"`
+	ServiceDeskRateLimitInterval float64 `servicedeskratelimitinterval` // See bugreport.go
+	ServiceDeskRateLimitReports  int `servicedeskratelimitreports`  // See bugreport.go
 }
 
 // User, was ist das wohl
 type User struct {
-	Name        string
+	Name        string `json:"name"`
 	Hash        []byte
-	DisplayName string
+	DisplayName string `json:"displayname"`
 	Completed   []*Challenge
-	Points      int
+	Admin       bool `json:"admin"`
+	Points      int  `json:"points"`
 }
-
 
 type gridinfo struct {
 	Index int
@@ -99,6 +107,7 @@ func (c Challenge) AllDepsCompleted(u User) bool {
 	}
 	return true
 }
+
 // ComparePassword checks if the password is valid
 func (u *User) ComparePassword(password string) bool {
 	return bcrypt.CompareHashAndPassword(u.Hash, []byte(password)) == nil

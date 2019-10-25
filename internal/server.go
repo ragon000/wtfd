@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -33,6 +34,7 @@ var (
 	challs              = Challenges{}
 	mainpagetemplate    = template.New("")
 	leaderboardtemplate = template.New("")
+	admintemplate       = template.New("")
 	coolNames           = [...]string{
 		"Anstruther's Dark Prophecy",
 		"The Unicorn Invasion of Dundee",
@@ -73,9 +75,23 @@ var (
 	maxrow = 0
 )
 
+type adminPageData struct {
+	PageTitle     string
+	User          *User
+	Config        Config
+	IsUser        bool
+	Points        int
+	Leaderboard   bool
+	AllUsers      []_ORMUser
+	GeneratedName string
+	Style         template.HTMLAttr
+	RowNums       []gridinfo
+	ColNums       []gridinfo
+}
 type leaderboardPageData struct {
 	PageTitle     string
 	User          *User
+	Config        Config
 	IsUser        bool
 	Points        int
 	Leaderboard   bool
@@ -92,6 +108,7 @@ type mainPageData struct {
 	SelectedChallengeID    string
 	HasSelectedChallengeID bool
 	GeneratedName          string
+	Config                 Config
 	User                   *User
 	IsUser                 bool
 	Points                 int
@@ -99,6 +116,91 @@ type mainPageData struct {
 	ColNums                []gridinfo
 }
 
+func getUserData(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userobj, _ := getUser(r)
+	user := &userobj
+	if user.Admin == false {
+		fmt.Fprintf(w, "Nice Try, %s", user.DisplayName)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	u, err := ormLoadUser(vars["user"])
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "Error: %v", err)
+	}
+	userToReturn := User{Name: u.Name, DisplayName: u.DisplayName, Points: u.Points, Admin: u.Admin}
+	jsonToReturn, err := json.Marshal(&userToReturn)
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "Error: %v", err)
+		return
+	}
+	w.Write(jsonToReturn)
+}
+func adminpage(w http.ResponseWriter, r *http.Request) {
+	userobj, ok := getUser(r)
+	user := &userobj
+	if user.Admin == false {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintf(w, "Nice Try, %s", user.DisplayName)
+		return
+	}
+	if r.Method == "POST" {
+		err := r.ParseForm()
+		fmt.Printf("a: %#v", r.FormValue("admin"))
+		if err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v", err)
+			return
+		}
+		dumb, err := strconv.Atoi(r.FormValue("points"))
+		if err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v", err)
+			return
+		}
+		isAdmin := r.FormValue("admin") == "on"
+		u := User{Name: r.FormValue("name"), DisplayName: r.FormValue("displayname"), Points: dumb, Admin: isAdmin}
+		//                fmt.Printf("a: %#v",u)
+
+		err = ormUpdateUser(u)
+		if err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v", err)
+			return
+		}
+
+		r.Method = "GET"
+		adminpage(w, r)
+		return
+	}
+	genu := ""
+	var err error
+	if !ok {
+		genu, err = generateUserName()
+		if err != nil {
+			_, _ = fmt.Fprintf(w, "Error: %v", err)
+		}
+	}
+	allUsers, err := ormAllUsersSortedByPoints()
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "Error: %v", err)
+	}
+	data := adminPageData{
+		PageTitle:     "foss-ag O-Phasen CTF",
+		GeneratedName: genu,
+		Leaderboard:   false,
+		AllUsers:      allUsers,
+		User:          user,
+		IsUser:        ok,
+		Config:        config,
+		RowNums:       make([]gridinfo, 0),
+		ColNums:       make([]gridinfo, 0),
+	}
+	err = admintemplate.Execute(w, data)
+	if err != nil {
+		fmt.Printf("Template error: %v\n", err)
+
+	}
+
+}
 func leaderboardpage(w http.ResponseWriter, r *http.Request) {
 	userobj, ok := getUser(r)
 	user := &userobj
@@ -116,6 +218,7 @@ func leaderboardpage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := leaderboardPageData{
 		PageTitle:     "foss-ag O-Phasen CTF",
+		Config:        config,
 		GeneratedName: genu,
 		Leaderboard:   true,
 		AllUsers:      allUsers,
@@ -161,6 +264,7 @@ func mainpage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := mainPageData{
 		PageTitle:              "foss-ag O-Phasen CTF",
+		Config:                 config,
 		Challenges:             challs,
 		GeneratedName:          genu,
 		HasSelectedChallengeID: hasChall,
@@ -299,6 +403,60 @@ func logout(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func reportBug(w http.ResponseWriter, r *http.Request) {
+	var err error
+
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, "Invalid Request")
+		return
+	}
+
+	/* Check user login */
+	user, ok := getUser(r)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintf(w, "Server Error: %v", "Not logged in")
+		return
+	}
+
+	/* Check if user is rate limited */
+	if BRIsUserRateLimited(&user) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = fmt.Fprint(w, "Too many requsets")
+		return
+	}
+
+	/* Read and check form */
+	if err = r.ParseForm(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintf(w, "Server Error: %v", "Not logged in")
+		return
+	}
+	subject := r.FormValue("subject")
+	content := r.FormValue("content")
+	if subject == "" || content == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Invaild Request")
+		return
+	}
+	/* Prevent field injection (assuming no injection in user.Name is possible) */
+	if strings.ContainsRune(subject, '\n') {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Invaild Request")
+		return
+	}
+
+	/* Try to dispatch bugreport */
+	if err = BRDispatchBugreport(&user, subject, content); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintf(w, "Server Error: %v", err)
+		return
+	}
+
+	fmt.Fprint(w, "OK")
+}
+
 func solutionview(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	chall, err := challs.Find(vars["chall"])
@@ -331,7 +489,7 @@ func detailview(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-        _, _ = fmt.Fprintf(w, "%s<br><p>Solves: %d</p>", chall.Description, ormGetSolveCount(*chall))
+	_, _ = fmt.Fprintf(w, "%s<br><p>Solves: %d</p>", chall.Description, ormGetSolveCount(*chall))
 
 }
 
@@ -375,10 +533,17 @@ func Server() error {
 
 		//Write default config to disk
 		config = Config{
-			Key:              base64.StdEncoding.EncodeToString(key),
-			Port:             defaultPort,
-			ChallengeInfoDir: "../challenges/info/",
-			SSHHost:          "ctf.foss-ag.de",
+			Key:               base64.StdEncoding.EncodeToString(key),
+			Port:              defaultPort,
+			ChallengeInfoDir:  "../challenges/info/",
+			ServiceDeskMail: "-", // service desk disabled
+			ServiceDeskRateLimitReports: BRRateLimitReports,
+			ServiceDeskRateLimitInterval: BRRateLimitInterval,
+			SSHHost:          "ctf.wtfd.tech",
+			SocialMedia:      `<a class="link sociallink" href="https://github.com/wtfd-tech/wtfd"><span class="mdi mdi-github-circle"></span> GitHub</a>`,
+			Icon:             "icon.svg",
+			FirstLine:        "WTFd",
+			SecondLine:       `CTF`,
 		}
 		configBytes, _ := json.MarshalIndent(config, "", "\t")
 		_ = ioutil.WriteFile("config.json", configBytes, os.FileMode(0600))
@@ -400,6 +565,41 @@ func Server() error {
 		key, err = base64.StdEncoding.DecodeString(config.Key)
 		if err != nil {
 			log.Fatal("Could not decode config.json:Key")
+		}
+
+		// setup servicedesk vars
+		if config.ServiceDeskMail == "-" {
+			BRServiceDeskEnabled = false
+		} else {
+			BRServiceDeskEnabled = true
+			split := strings.Split(config.ServiceDeskMail, ":")
+			if len(split) > 1 {
+				port, err := strconv.Atoi(split[1])
+				if err != nil {
+					log.Printf("Config: ServiceDeskMail bad format: %s", err)
+					BRServiceDeskEnabled = false
+				} else {
+					BRServiceDeskPort = port
+				}
+
+			}
+			split = strings.Split(split[0], "@")
+			if len(split) < 2 {
+				log.Printf("Config: BRServiceDeskMail bad format: %s", "bad address")
+				BRServiceDeskEnabled = false
+			} else {
+				BRServiceDeskDomain = split[1]
+				BRServiceDeskUser = split[0]
+			}
+		}
+		BRRateLimitReports = config.ServiceDeskRateLimitReports
+		BRRateLimitInterval = config.ServiceDeskRateLimitInterval
+		if BRServiceDeskEnabled {
+			fmt.Printf("ServiceDesk running at %s@%s:%d  (Max %dR/%.02fs)\n",
+				BRServiceDeskUser, BRServiceDeskDomain, BRServiceDeskPort,
+			    BRRateLimitReports, BRRateLimitInterval)
+		} else {
+			fmt.Println("ServiceDesk disabled")
 		}
 	}
 
@@ -475,33 +675,58 @@ func Server() error {
 	// Packr
 
 	box := packr.New("Box", "./html")
-        maintemplatetext , err := box.FindString("html/index.html")
+	maintemplatetext, err := box.FindString("html/index.html")
 	if err != nil {
 		return err
 	}
-        headertemplatetext , err := box.FindString("html/header.html")
+	headertemplatetext, err := box.FindString("html/header.html")
 	if err != nil {
 		return err
 	}
-        footertemplatetext , err := box.FindString("html/footer.html")
+	footertemplatetext, err := box.FindString("html/footer.html")
 	if err != nil {
 		return err
 	}
-        leaderboardtemplatetext , err := box.FindString("html/leaderboard.html")
+	admintemplatetext, err := box.FindString("html/admin.html")
+	if err != nil {
+		return err
+	}
+	leaderboardtemplatetext, err := box.FindString("html/leaderboard.html")
 	if err != nil {
 		return err
 	}
 
 	// Parse Templates
+	admintemplate, err = template.New("admin").Parse(admintemplatetext)
+	if err != nil {
+		return err
+	}
+	_, err = admintemplate.Parse(headertemplatetext)
+	if err != nil {
+		return err
+	}
+	_, err = admintemplate.Parse(footertemplatetext)
+	if err != nil {
+		return err
+	}
 	mainpagetemplate, err = template.New("main").Parse(maintemplatetext)
-        mainpagetemplate.Parse(headertemplatetext)
-        mainpagetemplate.Parse(footertemplatetext)
+	if err != nil {
+		return err
+	}
+	_, err = mainpagetemplate.Parse(headertemplatetext)
+	if err != nil {
+		return err
+	}
+	_, err = mainpagetemplate.Parse(footertemplatetext)
 	if err != nil {
 		return err
 	}
 	leaderboardtemplate, err = template.New("leader").Parse(leaderboardtemplatetext)
-        leaderboardtemplate.Parse(headertemplatetext)
-        leaderboardtemplate.Parse(footertemplatetext)
+	_, err = leaderboardtemplate.Parse(headertemplatetext)
+	if err != nil {
+		return err
+	}
+	_, err = leaderboardtemplate.Parse(footertemplatetext)
 	if err != nil {
 		return err
 	}
@@ -510,20 +735,26 @@ func Server() error {
 	r := mux.NewRouter()
 	r.HandleFunc("/", mainpage)
 	r.HandleFunc("/leaderboard", leaderboardpage)
+	r.HandleFunc("/admin", adminpage)
 	r.HandleFunc("/favicon.ico", favicon)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/register", register)
 	r.HandleFunc("/submitflag", submitFlag)
 	r.HandleFunc("/ws", leaderboardWS)
+	r.HandleFunc("/reportbug", reportBug)
 	r.HandleFunc("/{chall}", mainpage)
 	r.HandleFunc("/detailview/{chall}", detailview)
 	r.HandleFunc("/solutionview/{chall}", solutionview)
+	r.HandleFunc("/getUserData/{user}", getUserData)
 	r.HandleFunc("/uriview/{chall}", uriview)
 	r.HandleFunc("/authorview/{chall}", authorview)
 	// static
 	r.PathPrefix("/static").Handler(
 		http.FileServer(box))
+	r.HandleFunc("/dist/"+config.Icon, func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, config.Icon)
+	})
 
 	Port := config.Port
 	if portenv := os.Getenv("WTFD_PORT"); portenv != "" {
