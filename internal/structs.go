@@ -2,9 +2,10 @@ package wtfd
 
 import (
 	"fmt"
-	"golang.org/x/crypto/bcrypt"
-	"sort"
 	"html/template"
+	"sort"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Challenges Array of challenges but in nice with funcitons
@@ -42,17 +43,21 @@ type ChallengeJSON struct {
 
 // Config stores settings loaded from config.json
 type Config struct {
-	Port             int64  `json:port`
-	SocialMedia      template.HTML `json:"social"`
-	Icon             string `json:"icon"`
-	FirstLine        template.HTML `json:"firstline"`
-	SecondLine       template.HTML `json:"secondline"`
-	Key              string `json:key`
-	ChallengeInfoDir string `json:"challinfodir"`
-	SSHHost          string `json:"sshhost"`
-	ServiceDeskMail  string `json:"servicedeskmailwithport"`
+	Port                int64  `json:port`
+	SocialMedia         template.HTML `json:"social"`
+	Icon                string `json:"icon"`
+	FirstLine           template.HTML `json:"firstline"`
+	SecondLine          template.HTML `json:"secondline"`
+	Key                 string `json:key`
+	ChallengeInfoDir    string `json:"challinfodir"`
+	SSHHost             string `json:"sshhost"`
+	ServiceDeskAddress  string `json:"servicedeskaddress"`
+	SMTPRelayString     string `json:"smtprelaymailwithport"`
+	SMTPRelayPasswd     string `json:"smtprelaymailpassword"`
 	ServiceDeskRateLimitInterval float64 `servicedeskratelimitinterval` // See bugreport.go
 	ServiceDeskRateLimitReports  int `servicedeskratelimitreports`  // See bugreport.go
+	RestrictEmailDomains         []string      `json:"restrict_email_domains"`
+	RequireEmailVerification     bool          `json:"require_email_verification"`
 }
 
 // User, was ist das wohl
